@@ -2,8 +2,7 @@
 
 Phase 1 project setup for a REST API built with NestJS, TypeScript, PostgreSQL, and Prisma.
 
-<!-- Replace OWNER/REPOSITORY with this GitHub repository's owner and name. -->
-[![CI](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml)
+[![CI](https://github.com/thatsalgoritma/job-application-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/thatsalgoritma/job-application-tracker/actions/workflows/ci.yml)
 
 ## Prerequisites
 
@@ -80,7 +79,6 @@ Set `DATABASE_URL` when Render prompts for the secret value. Use a PostgreSQL pr
 
 The container runs `prisma migrate deploy` before starting NestJS. This applies only checked-in migrations and exits before the API starts if a migration fails. Prisma CLI is included in the production image for this startup step. Render's free web service can sleep after 15 minutes without requests and takes about a minute to wake; Render's free PostgreSQL databases expire after 30 days, so use a separate persistent PostgreSQL database for a durable portfolio deployment.
 
-Once the GitHub repository exists, replace `OWNER/REPOSITORY` in the badge URL above with its GitHub owner and repository name.
 
 ## Applications and interviews
 
