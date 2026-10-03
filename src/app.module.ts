@@ -18,6 +18,9 @@ import { UsersController } from './users/users.controller';
           .uri({ scheme: ['postgres', 'postgresql'] })
           .required(),
         JWT_SECRET: Joi.string().min(32).required(),
+        FRONTEND_ORIGIN: Joi.string()
+          .uri({ scheme: ['http', 'https'] })
+          .default('http://localhost:5173'),
         NODE_ENV: Joi.string()
           .valid('development', 'test', 'production')
           .default('development'),

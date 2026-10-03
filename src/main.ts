@@ -23,6 +23,9 @@ async function bootstrap(): Promise<void> {
   );
 
   const config = app.get(ConfigService);
+  app.enableCors({
+    origin: config.get<string>('FRONTEND_ORIGIN', 'http://localhost:5173'),
+  });
   await app.listen(config.get<number>('PORT', 3000));
 }
 
