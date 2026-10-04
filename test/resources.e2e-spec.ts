@@ -441,6 +441,30 @@ describe('Application and interview endpoints (e2e)', () => {
       .expect(404);
   });
 
+  it('deletes an application and cascades its interviews; a missing id returns 404', async () => {
+    const token = await register('delete-cascade@example.com');
+    const application = await createApplication(token);
+    const response = await request(app.getHttpServer())
+      .post(`/applications/${application.id}/interviews`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ type: InterviewType.HR, scheduledAt: '2026-11-15T13:00:00.000Z' })
+      .expect(201);
+    const interview = response.body as Interview;
+    expect(interviews.has(interview.id)).toBe(true);
+
+    await request(app.getHttpServer())
+      .delete(`/applications/${application.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(204);
+    expect(applications.has(application.id)).toBe(false);
+    expect(interviews.has(interview.id)).toBe(false);
+
+    await request(app.getHttpServer())
+      .delete(`/applications/${randomUUID()}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+  });
+
   it('filters, searches, sorts, and paginates only the current user’s applications', async () => {
     const token = await register('listing@example.com');
     const first = await createApplication(token, {

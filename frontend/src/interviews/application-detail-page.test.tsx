@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext } from '../auth/auth-context';
 import type { AuthContextValue } from '../auth/auth-types';
@@ -78,5 +78,30 @@ describe('ApplicationDetailPage', () => {
     await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true));
     expect(calls.find((call) => call.method === 'POST')?.body).toContain('"type":"HR"');
     expect(await screen.findByRole('status')).toHaveTextContent('Interview scheduled.');
+  });
+
+  it('confirms deletion and returns to the board with a success message', async () => {
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, 'test-token');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/applications/application-1') && (init?.method ?? 'GET') === 'GET') return jsonResponse(application);
+      if (url.endsWith('/applications/application-1/interviews')) return jsonResponse([]);
+      if (url.endsWith('/applications/application-1') && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    function BoardDestination() {
+      const location = useLocation();
+      return <p role="status">{(location.state as { notice?: string } | null)?.notice}</p>;
+    }
+    render(<AuthContext.Provider value={authValue()}><MemoryRouter initialEntries={['/applications/application-1']}><Routes>
+      <Route path="/applications/:applicationId" element={<ApplicationDetailPage />} />
+      <Route path="/applications" element={<BoardDestination />} />
+    </Routes></MemoryRouter></AuthContext.Provider>);
+    expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete application' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Acme — Backend Engineer was deleted.');
+    expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ method: 'DELETE' });
   });
 });

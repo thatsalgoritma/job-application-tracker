@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { availableStatuses } from './application-types';
-import { buildApplicationsQuery } from './applications-api';
+import { buildApplicationsQuery, deleteApplication } from './applications-api';
 
 describe('application board API helpers', () => {
+  it('sends an authenticated DELETE request for an application', async () => {
+    window.localStorage.setItem('job-tracker.access-token', 'test-token');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await deleteApplication('app-1');
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/applications\/app-1$/);
+    expect(options.method).toBe('DELETE');
+    expect(new Headers(options.headers).get('Authorization')).toBe('Bearer test-token');
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
   it('maps board filters and pagination to the backend query contract', () => {
     const query = new URLSearchParams(
       buildApplicationsQuery(

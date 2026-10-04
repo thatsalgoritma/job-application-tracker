@@ -69,3 +69,7 @@ export function updateApplicationStatus(
     body: JSON.stringify({ status }),
   });
 }
+
+export function deleteApplication(applicationId: string): Promise<void> {
+  return request<void>(`/applications/${applicationId}`, { method: 'DELETE' });
+}

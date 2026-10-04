@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ApiError } from '../api/http-client';
 import { useAuth } from '../auth/auth-context';
 import {
@@ -13,9 +13,11 @@ import {
 } from './application-types';
 import {
   createApplication,
+  deleteApplication,
   listApplications,
   updateApplicationStatus,
 } from './applications-api';
+import { DeleteApplicationDialog } from './delete-application-dialog';
 
 const INITIAL_FILTERS: ApplicationFilters = {
   status: '',
@@ -29,6 +31,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export function ApplicationsBoard() {
   const { user, logout } = useAuth();
+  const location = useLocation();
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [settledFilters, setSettledFilters] = useState(INITIAL_FILTERS);
   const [page, setPage] = useState(1);
@@ -43,6 +46,17 @@ export function ApplicationsBoard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Application | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [successMessage, setSuccessMessage] = useState<string>(
+    (location.state as { notice?: string } | null)?.notice ?? '',
+  );
+
+  useEffect(() => {
+    const notice = (location.state as { notice?: string } | null)?.notice;
+    if (notice) window.history.replaceState({}, document.title);
+  }, [location.state]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSettledFilters(filters), 250);
@@ -135,6 +149,27 @@ export function ApplicationsBoard() {
       );
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteApplication(deleteTarget.id);
+      setApplications((current) => current.filter((item) => item.id !== deleteTarget.id));
+      setTotal((current) => Math.max(0, current - 1));
+      setSuccessMessage(`${deleteTarget.company} — ${deleteTarget.position} was deleted.`);
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error instanceof ApiError && error.status === 404
+        ? 'This application was already deleted or is no longer available.'
+        : error instanceof ApiError
+          ? error.message
+          : 'Could not delete this application. Check your connection and try again.');
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -234,6 +269,7 @@ export function ApplicationsBoard() {
         </section>
 
         {actionError && <p className="board-error" role="alert">{actionError}</p>}
+        {successMessage && <p className="success-message" role="status">{successMessage}</p>}
 
         <div className="board-summary" aria-live="polite">
           <span>{total} {total === 1 ? 'application' : 'applications'}</span>
@@ -291,6 +327,7 @@ export function ApplicationsBoard() {
                         application={application}
                         isUpdating={busyApplicationId === application.id}
                         onStatusChange={(nextStatus) => void handleStatusChange(application, nextStatus)}
+                        onDelete={() => { setDeleteError(''); setDeleteTarget(application); }}
                       />
                     ))
                   )}
@@ -331,6 +368,7 @@ export function ApplicationsBoard() {
           onSubmit={handleCreate}
         />
       )}
+      {deleteTarget && <DeleteApplicationDialog application={deleteTarget} isDeleting={isDeleting} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete} />}
     </main>
   );
 }
@@ -339,9 +377,10 @@ interface ApplicationCardProps {
   application: Application;
   isUpdating: boolean;
   onStatusChange(status: ApplicationStatus): void;
+  onDelete(): void;
 }
 
-function ApplicationCard({ application, isUpdating, onStatusChange }: ApplicationCardProps) {
+function ApplicationCard({ application, isUpdating, onStatusChange, onDelete }: ApplicationCardProps) {
   const appliedDate = new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
@@ -371,6 +410,7 @@ function ApplicationCard({ application, isUpdating, onStatusChange }: Applicatio
           ))}
         </select>
       </label>
+      <button className="text-button danger-text card-delete-action" type="button" onClick={onDelete}>Delete</button>
     </article>
   );
 }

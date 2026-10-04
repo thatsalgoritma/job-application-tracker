@@ -182,6 +182,12 @@ a { color: var(--teal-dark); }
 .interview-actions { display: flex; align-items: flex-start; gap: 12px; }
 .interview-actions .text-button { padding: 0; font-size: .77rem; }
 .danger-text { color: #a34e4e; }
+.danger-action { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; padding: 0 15px; color: #fff; background: #a84e4e; border: 1px solid #a84e4e; border-radius: 8px; cursor: pointer; font-size: .88rem; font-weight: 700; }
+.danger-action:hover:not(:disabled) { background: #8d3e3e; border-color: #8d3e3e; }
+.danger-action:disabled { cursor: not-allowed; opacity: .55; }
+.delete-summary { margin: 0 0 9px; color: #344255; line-height: 1.5; }
+.delete-warning { margin: 0; color: #8d4545; background: #fff5f4; border: 1px solid #f0d8d5; border-radius: 8px; padding: 12px; font-size: .86rem; line-height: 1.5; }
+.card-delete-action { margin-top: 12px; padding: 0; }
 .interview-notes, .interview-outcome { margin: 11px 0 0; color: #59697b; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; }
 .interview-outcome strong { color: #394b60; }
 .interview-form { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }

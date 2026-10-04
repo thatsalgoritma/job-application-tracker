@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/http-client';
 import { useAuth } from '../auth/auth-context';
 import {
@@ -8,7 +8,8 @@ import {
   type Application,
   type ApplicationStatus,
 } from '../applications/application-types';
-import { getApplication, updateApplication } from '../applications/applications-api';
+import { deleteApplication, getApplication, updateApplication } from '../applications/applications-api';
+import { DeleteApplicationDialog } from '../applications/delete-application-dialog';
 import {
   createInterview,
   deleteInterview,
@@ -51,6 +52,7 @@ const EMPTY_INTERVIEW: InterviewFormState = {
 export function ApplicationDetailPage() {
   const { applicationId = '' } = useParams();
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [application, setApplication] = useState<Application | null>(null);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [applicationForm, setApplicationForm] = useState<ApplicationFormState | null>(null);
@@ -64,6 +66,9 @@ export function ApplicationDetailPage() {
   const [applicationError, setApplicationError] = useState('');
   const [interviewError, setInterviewError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeletingApplication, setIsDeletingApplication] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -179,6 +184,22 @@ export function ApplicationDetailPage() {
     }
   }
 
+  async function removeApplication() {
+    if (!application) return;
+    setIsDeletingApplication(true);
+    setDeleteError('');
+    try {
+      await deleteApplication(application.id);
+      navigate('/applications', { state: { notice: `${application.company} — ${application.position} was deleted.` } });
+    } catch (error) {
+      setDeleteError(error instanceof ApiError && error.status === 404
+        ? 'This application was already deleted or is no longer available.'
+        : errorMessage(error, 'Could not delete this application. Check your connection and try again.'));
+    } finally {
+      setIsDeletingApplication(false);
+    }
+  }
+
   return (
     <main className="board-page">
       <header className="board-topbar">
@@ -213,6 +234,7 @@ export function ApplicationDetailPage() {
               <span className={`detail-status status-${application.status.toLowerCase()}`}>
                 {STATUS_LABELS[application.status]}
               </span>
+              <button className="danger-action" type="button" onClick={() => { setDeleteError(''); setIsDeleteDialogOpen(true); }}>Delete</button>
             </div>
 
             {successMessage && <p className="success-message" role="status">{successMessage}</p>}
@@ -283,6 +305,7 @@ export function ApplicationDetailPage() {
           </>
         ) : null}
       </section>
+      {isDeleteDialogOpen && application && <DeleteApplicationDialog application={application} isDeleting={isDeletingApplication} error={deleteError} onCancel={() => setIsDeleteDialogOpen(false)} onConfirm={removeApplication} />}
     </main>
   );
 }
