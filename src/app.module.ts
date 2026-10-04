@@ -5,9 +5,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApplicationsModule } from './applications/applications.module';
 import { AuthModule } from './auth/auth.module';
+import { DigestsModule } from './digests/digests.module';
 import { InterviewsModule } from './interviews/interviews.module';
+import { MailModule } from './mail/mail.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { UsersController } from './users/users.controller';
+import { UsersModule } from './users/users.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -25,14 +28,30 @@ import { UsersController } from './users/users.controller';
           .valid('development', 'test', 'production')
           .default('development'),
         PORT: Joi.number().port().default(3000),
+        DEFAULT_FOLLOW_UP_DAYS: Joi.number()
+          .integer()
+          .min(1)
+          .max(3650)
+          .default(7),
+        DIGEST_CRON: Joi.string().default('0 9 * * 1'),
+        SMTP_HOST: Joi.string().default('localhost'),
+        SMTP_PORT: Joi.number().port().default(1025),
+        SMTP_SECURE: Joi.boolean().default(false),
+        SMTP_USER: Joi.string().allow('').default(''),
+        SMTP_PASSWORD: Joi.string().allow('').default(''),
+        SMTP_FROM: Joi.string().default('digest@example.com'),
       }),
     }),
     PrismaModule,
+    ScheduleModule.forRoot(),
+    MailModule,
+    DigestsModule,
+    UsersModule,
     AuthModule,
     ApplicationsModule,
     InterviewsModule,
   ],
-  controllers: [AppController, UsersController],
+  controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}

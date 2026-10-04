@@ -17,13 +17,12 @@ describe('Authentication endpoints (e2e)', () => {
           ? users.get(where.email)
           : [...users.values()].find((candidate) => candidate.id === where.id);
         if (!user) return null;
-        if (select) {
-          return {
-            id: user.id,
-            email: user.email,
-            createdAt: user.createdAt,
-          };
-        }
+        if (select)
+          return Object.fromEntries(
+            Object.keys(select)
+              .filter((key) => select[key as keyof typeof select])
+              .map((key) => [key, user[key as keyof User]]),
+          );
         return user;
       }),
       create: jest.fn(({ data }: Prisma.UserCreateArgs) => {
@@ -31,9 +30,25 @@ describe('Authentication endpoints (e2e)', () => {
           id: randomUUID(),
           email: data.email,
           passwordHash: data.passwordHash,
+          emailDigestEnabled: false,
+          followUpDays: data.followUpDays ?? 7,
           createdAt: new Date(),
         };
         users.set(user.email, user);
+        return user;
+      }),
+      update: jest.fn(({ where, data, select }: Prisma.UserUpdateArgs) => {
+        const user = [...users.values()].find(
+          (candidate) => candidate.id === where.id,
+        );
+        if (!user) throw new Error('User not found');
+        Object.assign(user, data);
+        if (select)
+          return Object.fromEntries(
+            Object.keys(select)
+              .filter((key) => select[key as keyof typeof select])
+              .map((key) => [key, user[key as keyof User]]),
+          );
         return user;
       }),
     },
@@ -104,5 +119,33 @@ describe('Authentication endpoints (e2e)', () => {
 
   it('protects /me when no valid bearer token is provided', async () => {
     await request(app.getHttpServer()).get('/me').expect(401);
+    await request(app.getHttpServer()).post('/digests/trigger').expect(401);
+  });
+
+  it('reads and validates the authenticated user digest settings', async () => {
+    const register = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email: 'settings@example.com', password: 'password123' })
+      .expect(201);
+    const authorization = `Bearer ${register.body.accessToken}`;
+
+    await request(app.getHttpServer())
+      .get('/me/settings')
+      .set('Authorization', authorization)
+      .expect(200)
+      .expect({ emailDigestEnabled: false, followUpDays: 7 });
+
+    await request(app.getHttpServer())
+      .patch('/me/settings')
+      .set('Authorization', authorization)
+      .send({ emailDigestEnabled: true, followUpDays: 14 })
+      .expect(200)
+      .expect({ emailDigestEnabled: true, followUpDays: 14 });
+
+    await request(app.getHttpServer())
+      .patch('/me/settings')
+      .set('Authorization', authorization)
+      .send({ followUpDays: 0 })
+      .expect(400);
   });
 });

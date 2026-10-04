@@ -3,6 +3,15 @@ x-app-environment: &app-environment
   JWT_SECRET: '${JWT_SECRET:?Set JWT_SECRET in .env to a private value of at least 32 characters}'
   NODE_ENV: production
   PORT: '3000'
+  FRONTEND_ORIGIN: 'http://localhost:5173'
+  DEFAULT_FOLLOW_UP_DAYS: '${DEFAULT_FOLLOW_UP_DAYS:-7}'
+  DIGEST_CRON: '${DIGEST_CRON:-0 9 * * 1}'
+  SMTP_HOST: mailpit
+  SMTP_PORT: '1025'
+  SMTP_SECURE: 'false'
+  SMTP_USER: ''
+  SMTP_PASSWORD: ''
+  SMTP_FROM: '${SMTP_FROM:-digest@example.com}'
 
 services:
   db:
@@ -34,6 +43,13 @@ services:
       db:
         condition: service_healthy
 
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
   api:
     build:
       context: .
@@ -47,6 +63,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
     healthcheck:
       test:
         [

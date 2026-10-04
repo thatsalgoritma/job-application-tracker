@@ -112,6 +112,8 @@ describe('Application and interview endpoints (e2e)', () => {
           id: randomUUID(),
           email: data.email,
           passwordHash: data.passwordHash,
+          emailDigestEnabled: false,
+          followUpDays: data.followUpDays ?? 7,
           createdAt: new Date(),
         };
         usersByEmail.set(user.email, user);

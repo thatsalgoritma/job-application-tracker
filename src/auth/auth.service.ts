@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma, User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -26,6 +27,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
@@ -44,7 +46,11 @@ export class AuthService {
     let user: SafeUser;
     try {
       user = await this.prisma.user.create({
-        data: { email, passwordHash },
+        data: {
+          email,
+          passwordHash,
+          followUpDays: this.config.get<number>('DEFAULT_FOLLOW_UP_DAYS', 7),
+        },
         select: { id: true, email: true, createdAt: true },
       });
     } catch (error: unknown) {

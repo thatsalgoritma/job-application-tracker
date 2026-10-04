@@ -13,16 +13,21 @@ flowchart LR
     Browser[React and TypeScript frontend]
     subgraph API[NestJS API]
         Controllers[Controllers and DTO validation]
-        Auth[JWT authentication and guards]
-        Services[Services and business rules]
-        Prisma[PrismaService]
+    Auth[JWT authentication and guards]
+    Services[Services and business rules]
+    Digest[Weekly digest scheduler and report]
+    Mail[MailService and Nodemailer]
+    Prisma[PrismaService]
         Controllers --> Auth
         Controllers --> Services
-        Services --> Prisma
+    Services --> Prisma
+    Digest --> Prisma
+    Digest --> Mail
     end
     DB[(PostgreSQL)]
     Browser -->|HTTPS and JWT| Controllers
     Prisma --> DB
+    Mail --> SMTP[SMTP provider or local Mailpit]
 
     Actions[GitHub Actions\nLint, tests, migrations, build] -->|checks pass on main| Render[Render Docker service]
     Render --> API
@@ -49,6 +54,9 @@ flowchart LR
 - **Status changes are explicit business rules:** invalid application status transitions return a clear client error; terminal statuses cannot be reopened.
 - **Migrations are committed:** local, CI, and deployment environments apply the same schema changes through Prisma migrations. The container applies pending migrations before starting the API.
 - **One error response shape:** the global exception filter returns `statusCode`, `timestamp`, `path`, `message`, and `error` consistently.
+- **Weekly digest mail is behind an interface:** `MailService` keeps digest logic independent from Nodemailer and SMTP, so a provider can be replaced without changing the scheduler or report builder.
+- **Digest delivery is claimed in PostgreSQL:** a unique `(userId, periodStart)` constraint arbitrates competing instances before mail is sent. This prevents two app instances from sending the same weekly digest at the same time.
+- **The cron runs inside the API:** it keeps this small project deployable without an additional scheduler service. Every replica runs the cron, so the database claim is required; an external scheduler would avoid duplicate timers but adds infrastructure and still needs idempotent delivery.
 
 ## Run locally
 
@@ -59,6 +67,8 @@ Copy-Item .env.example .env
 ```
 
 Edit `.env` and set `DATABASE_URL` to your local PostgreSQL connection and `JWT_SECRET` to a random value of at least 32 characters. Keep `.env` private; it is ignored by Git.
+
+For local development outside Docker, set `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `SMTP_SECURE=false`, and `SMTP_FROM=digest@example.com`; start Mailpit with Docker Compose (steps below) to inspect email without delivering real messages. Digest email is disabled for new users until they opt in through `PATCH /me/settings`.
 
 ```powershell
 npm ci
@@ -82,7 +92,7 @@ The frontend opens at `http://localhost:5173`. Its local `.env` uses `VITE_API_B
 
 ## Run with Docker Compose
 
-Prerequisite: Docker Desktop with Docker Compose. Copy `.env.example` to `.env` if needed, then set `POSTGRES_PASSWORD` and `JWT_SECRET` to private values. Compose runs PostgreSQL, applies migrations, and starts the API.
+Prerequisite: Docker Desktop with Docker Compose. Copy `.env.example` to `.env` if needed, then set `POSTGRES_PASSWORD` and `JWT_SECRET` to private values. Compose runs PostgreSQL, Mailpit, applies migrations, and starts the API. Open [Mailpit](http://localhost:8025) to inspect locally generated messages; the SMTP listener is on port `1025`.
 
 ```powershell
 docker compose up --build
@@ -112,23 +122,48 @@ Unit and e2e tests use test doubles for Prisma, so they do not require a local d
 
 Swagger UI: [`/api`](http://localhost:3000/api) when running locally. Resource endpoints require `Authorization: Bearer <accessToken>`.
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `POST` | `/auth/register` | Create an account and receive a JWT |
-| `POST` | `/auth/login` | Log in and receive a JWT |
-| `GET` | `/me` | Read the authenticated user's profile |
-| `POST` | `/applications` | Create an application |
-| `GET` | `/applications` | List, search, filter, sort, and paginate applications |
-| `GET` | `/applications/:id` | Read an application |
-| `PATCH` | `/applications/:id` | Update an application and its status |
-| `DELETE` | `/applications/:id` | Delete an application |
-| `GET` | `/applications/follow-up?days=7` | Find active applications unchanged for the requested number of days |
-| `GET` | `/applications/stats` | Get counts by status and response rate |
-| `GET`, `POST` | `/applications/:id/interviews` | List or schedule interviews for an application |
-| `GET`, `PATCH`, `DELETE` | `/applications/:id/interviews/:interviewId` | Read, update, or delete an interview |
-| `GET` | `/health` | Check that the API process is responding |
+| Method                   | Endpoint                                    | Purpose                                                                                                                |
+| ------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `POST`                   | `/auth/register`                            | Create an account and receive a JWT                                                                                    |
+| `POST`                   | `/auth/login`                               | Log in and receive a JWT                                                                                               |
+| `GET`                    | `/me`                                       | Read the authenticated user's profile                                                                                  |
+| `GET`, `PATCH`           | `/me/settings`                              | Read or update digest opt-in and follow-up days                                                                        |
+| `POST`                   | `/applications`                             | Create an application                                                                                                  |
+| `GET`                    | `/applications`                             | List, search, filter, sort, and paginate applications                                                                  |
+| `GET`                    | `/applications/:id`                         | Read an application                                                                                                    |
+| `PATCH`                  | `/applications/:id`                         | Update an application and its status                                                                                   |
+| `DELETE`                 | `/applications/:id`                         | Delete an application                                                                                                  |
+| `GET`                    | `/applications/follow-up?days=7`            | Find active applications unchanged for the requested number of days                                                    |
+| `GET`                    | `/applications/stats`                       | Get counts by status and response rate                                                                                 |
+| `GET`, `POST`            | `/applications/:id/interviews`              | List or schedule interviews for an application                                                                         |
+| `GET`, `PATCH`, `DELETE` | `/applications/:id/interviews/:interviewId` | Read, update, or delete an interview                                                                                   |
+| `GET`                    | `/health`                                   | Check that the API process is responding                                                                               |
+| `POST`                   | `/digests/trigger`                          | Send the authenticated user's digest for testing (JWT required; still respects opt-in and weekly duplicate protection) |
 
 Application statuses are `APPLIED`, `SCREENING`, `INTERVIEW`, `OFFER`, `REJECTED`, and `WITHDRAWN`. Filtering supports status, company, applied date range, and text search; list responses include pagination metadata. The response-rate denominator excludes withdrawn applications; rejected applications count as responses.
+
+## Weekly email digest
+
+Users opt in and choose the inactivity threshold through `PATCH /me/settings` with a bearer token and a JSON body such as `{"emailDigestEnabled":true,"followUpDays":10}`. `followUpDays` accepts integers from 1 through 3650. The API checks every opted-in user on the configured weekly schedule and includes active applications whose status has not changed for that user's chosen number of days, counts for each application status, and interviews scheduled in the next seven days. A message is skipped when there are no follow-ups and no upcoming interviews.
+
+`POST /digests/trigger` runs the same flow immediately for the authenticated user, making it useful for local testing. It does not bypass opt-in or send a second digest in the same UTC week. The email contains both plain text and HTML.
+
+| Variable                 | Default              | Purpose                                                                 |
+| ------------------------ | -------------------- | ----------------------------------------------------------------------- |
+| `DIGEST_CRON`            | `0 9 * * 1`          | Five-field cron schedule, interpreted in UTC (default Monday 09:00 UTC) |
+| `DEFAULT_FOLLOW_UP_DAYS` | `7`                  | Initial threshold for newly registered users; each user can change it   |
+| `SMTP_HOST`              | `localhost`          | SMTP server hostname; Docker Compose sets this to `mailpit`             |
+| `SMTP_PORT`              | `1025`               | SMTP server port; Mailpit listens on 1025                               |
+| `SMTP_SECURE`            | `false`              | Enable TLS for SMTP, usually with port 465                              |
+| `SMTP_USER`              | empty                | Optional SMTP username                                                  |
+| `SMTP_PASSWORD`          | empty                | Optional SMTP password or provider API key                              |
+| `SMTP_FROM`              | `digest@example.com` | Sender address                                                          |
+
+For production, configure these SMTP values in the hosting platform's environment settings. For Resend, set `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER=resend`, and `SMTP_PASSWORD` to an API key; set `SMTP_FROM` to a sender address verified with the provider. These are Resend's documented SMTP credentials ([Resend SMTP setup](https://resend.com/changelog/smtp-service)). Never commit real mail credentials. When testing locally through Docker Compose, open Mailpit at `http://localhost:8025` and enable the digest on an account that has follow-ups or an upcoming interview.
+
+The database claim is created before SMTP delivery and made unique per user and UTC week. If two Render instances run the cron simultaneously, only one can claim that user's week. The claim is removed when sending fails, so the next manual or scheduled attempt may retry. This avoids ordinary concurrent duplicates; no SMTP integration can guarantee perfect exactly-once delivery if a process crashes after the provider accepts a message but before the database records success.
+
+The cron is hosted inside the API for a simple deployment. All instances run it, hence the database idempotency claim. A separate scheduler would reduce duplicated cron work and isolate scheduling from web traffic, but adds a deployable component and still needs the same database protection for retries and overlapping executions. The Render free service can sleep while idle, so an in-process cron is not a reliable clock there; use an always-on instance or an external scheduler for production delivery guarantees.
 
 ## Live demo
 

@@ -1,4 +1,5 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma, User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -10,6 +11,7 @@ describe('AuthService', () => {
   let savedUser: User | null;
   let prisma: PrismaService;
   let jwt: JwtService;
+  let config: ConfigService;
 
   beforeEach(() => {
     savedUser = null;
@@ -27,6 +29,8 @@ describe('AuthService', () => {
             id: 'user-1',
             email: data.email,
             passwordHash: data.passwordHash,
+            emailDigestEnabled: false,
+            followUpDays: data.followUpDays ?? 7,
             createdAt: new Date('2026-01-01T00:00:00.000Z'),
           };
           return savedUser;
@@ -38,7 +42,8 @@ describe('AuthService', () => {
     jwt = {
       signAsync: jest.fn().mockResolvedValue('signed-test-token'),
     } as unknown as JwtService;
-    service = new AuthService(prisma, jwt);
+    config = { get: jest.fn().mockReturnValue(7) } as unknown as ConfigService;
+    service = new AuthService(prisma, jwt, config);
   });
 
   it('normalizes email, hashes the password, and returns a safe user with a token', async () => {
@@ -48,6 +53,7 @@ describe('AuthService', () => {
     });
 
     expect(savedUser?.email).toBe('dev@example.com');
+    expect(savedUser?.followUpDays).toBe(7);
     expect(savedUser?.passwordHash).not.toBe('correct horse battery');
     await expect(
       bcrypt.compare('correct horse battery', savedUser!.passwordHash),
