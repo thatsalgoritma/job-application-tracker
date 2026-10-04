@@ -34,15 +34,49 @@ export async function request<T>(
   const body: unknown = await response.json().catch(() => undefined);
 
   if (!response.ok) {
-    if (response.status === 401) {
-      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-    }
-
+    handleUnauthorized(response);
     throw new ApiError(getErrorMessage(body), response.status);
   }
 
   return body as T;
+}
+
+export async function requestBlob(path: string): Promise<Blob> {
+  const headers = new Headers();
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(`${apiBaseUrl}${path}`, { headers });
+  if (!response.ok) {
+    handleUnauthorized(response);
+    const body: unknown = await response.json().catch(() => undefined);
+    throw new ApiError(getErrorMessage(body), response.status);
+  }
+  return response.blob();
+}
+
+export async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const headers = new Headers();
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+  const body: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    handleUnauthorized(response);
+    throw new ApiError(getErrorMessage(body), response.status);
+  }
+  return body as T;
+}
+
+function handleUnauthorized(response: Response): void {
+  if (response.status !== 401) return;
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
 }
 
 function getErrorMessage(body: unknown): string {

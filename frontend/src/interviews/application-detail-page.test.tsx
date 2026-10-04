@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext } from '../auth/auth-context';
@@ -37,6 +37,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('ApplicationDetailPage', () => {
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     window.localStorage.clear();
   });
@@ -99,7 +100,7 @@ describe('ApplicationDetailPage', () => {
       <Route path="/applications" element={<BoardDestination />} />
     </Routes></MemoryRouter></AuthContext.Provider>);
     expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!);
     fireEvent.click(screen.getByRole('button', { name: 'Delete application' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Acme — Backend Engineer was deleted.');
     expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ method: 'DELETE' });

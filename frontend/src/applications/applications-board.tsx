@@ -14,10 +14,13 @@ import {
 import {
   createApplication,
   deleteApplication,
+  exportApplications,
   listApplications,
   updateApplicationStatus,
+  type ApplicationExportFormat,
 } from './applications-api';
 import { DeleteApplicationDialog } from './delete-application-dialog';
+import { ApplicationImportDialog } from './application-import-dialog';
 
 const INITIAL_FILTERS: ApplicationFilters = {
   status: '',
@@ -45,6 +48,7 @@ export function ApplicationsBoard() {
   const [busyApplicationId, setBusyApplicationId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -52,6 +56,9 @@ export function ApplicationsBoard() {
   const [successMessage, setSuccessMessage] = useState<string>(
     (location.state as { notice?: string } | null)?.notice ?? '',
   );
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ApplicationExportFormat | null>(null);
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     const notice = (location.state as { notice?: string } | null)?.notice;
@@ -173,6 +180,27 @@ export function ApplicationsBoard() {
     }
   }
 
+  async function handleExport(format: ApplicationExportFormat) {
+    setIsExportMenuOpen(false);
+    setExportingFormat(format);
+    setExportError('');
+    try {
+      const file = await exportApplications(filters, format);
+      const objectUrl = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `applications-${localDateStamp()}.${format}`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    } catch (error) {
+      setExportError(error instanceof ApiError
+        ? error.message
+        : 'Applications could not be exported. Check your connection and try again.');
+    } finally {
+      setExportingFormat(null);
+    }
+  }
+
   const firstVisible = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastVisible = Math.min(page * pageSize, total);
 
@@ -186,6 +214,7 @@ export function ApplicationsBoard() {
         <nav className="topbar-navigation" aria-label="Main navigation">
           <Link className="active" to="/applications">Applications</Link>
           <Link to="/insights">Insights</Link>
+          <Link to="/settings">Settings</Link>
         </nav>
         <div className="board-account">
           <span className="account-email">{user?.email}</span>
@@ -200,16 +229,37 @@ export function ApplicationsBoard() {
             <h1>Applications</h1>
             <p className="board-subtitle">Track progress and keep the next step in sight.</p>
           </div>
-          <button
-            className="primary-action"
-            type="button"
-            onClick={() => {
-              setActionError('');
-              setIsCreateOpen(true);
-            }}
-          >
-            <span aria-hidden="true">＋</span> Add application
-          </button>
+          <div className="board-heading-actions">
+            <button className="secondary-action" type="button" onClick={() => setIsImportOpen(true)}>Import</button>
+            <div className="export-menu-wrap" onKeyDown={(event) => { if (event.key === 'Escape') setIsExportMenuOpen(false); }}>
+              <button
+                className="secondary-action"
+                type="button"
+                aria-expanded={isExportMenuOpen}
+                aria-controls="application-export-formats"
+                disabled={Boolean(exportingFormat)}
+                onClick={() => setIsExportMenuOpen((open) => !open)}
+              >
+                {exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}…` : 'Export'}
+              </button>
+              {isExportMenuOpen && (
+                <div id="application-export-formats" className="export-format-menu" role="group" aria-label="Export format">
+                  <button type="button" onClick={() => void handleExport('csv')}>CSV (.csv)</button>
+                  <button type="button" onClick={() => void handleExport('json')}>JSON (.json)</button>
+                </div>
+              )}
+            </div>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => {
+                setActionError('');
+                setIsCreateOpen(true);
+              }}
+            >
+              <span aria-hidden="true">＋</span> Add application
+            </button>
+          </div>
         </div>
 
         <section className="board-filters" aria-label="Filter applications">
@@ -269,6 +319,7 @@ export function ApplicationsBoard() {
         </section>
 
         {actionError && <p className="board-error" role="alert">{actionError}</p>}
+        {exportError && <p className="board-error" role="alert">{exportError}</p>}
         {successMessage && <p className="success-message" role="status">{successMessage}</p>}
 
         <div className="board-summary" aria-live="polite">
@@ -369,6 +420,15 @@ export function ApplicationsBoard() {
         />
       )}
       {deleteTarget && <DeleteApplicationDialog application={deleteTarget} isDeleting={isDeleting} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={handleDelete} />}
+      {isImportOpen && (
+        <ApplicationImportDialog
+          onClose={() => setIsImportOpen(false)}
+          onImported={() => {
+            setPage(1);
+            setRefreshKey((current) => current + 1);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -506,4 +566,12 @@ function hasActiveFilters(filters: ApplicationFilters): boolean {
       filters.appliedFrom ||
       filters.appliedTo,
   );
+}
+
+function localDateStamp(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

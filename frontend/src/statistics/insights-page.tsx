@@ -69,6 +69,7 @@ export function InsightsPage() {
         <nav className="topbar-navigation" aria-label="Main navigation">
           <Link to="/applications">Applications</Link>
           <Link className="active" to="/insights">Insights</Link>
+          <Link to="/settings">Settings</Link>
         </nav>
         <div className="board-account">
           <span className="account-email">{user?.email}</span>

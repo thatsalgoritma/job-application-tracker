@@ -4,6 +4,7 @@ import { ProtectedRoute } from './auth/protected-route';
 import { ApplicationsBoard } from './applications/applications-board';
 import { ApplicationDetailPage } from './interviews/application-detail-page';
 import { InsightsPage } from './statistics/insights-page';
+import { SettingsPage } from './users/settings-page';
 
 export function App() {
   return (
@@ -33,6 +34,10 @@ export function App() {
             <InsightsPage />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/settings"
+        element={<ProtectedRoute><SettingsPage /></ProtectedRoute>}
       />
       <Route path="*" element={<Navigate to="/applications" replace />} />
     </Routes>
