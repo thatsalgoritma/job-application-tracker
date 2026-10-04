@@ -33,6 +33,40 @@ export interface ApplicationStats {
   };
 }
 
+export function buildApplicationsWhere(
+  userId: string,
+  query: ListApplicationsQueryDto,
+): Prisma.ApplicationWhereInput {
+  const where: Prisma.ApplicationWhereInput = { userId };
+  if (query.status) where.status = query.status;
+  if (query.company) {
+    where.company = { contains: query.company, mode: 'insensitive' };
+  }
+  if (query.appliedFrom || query.appliedTo) {
+    where.appliedAt = {
+      ...(query.appliedFrom ? { gte: new Date(query.appliedFrom) } : {}),
+      ...(query.appliedTo ? { lte: new Date(query.appliedTo) } : {}),
+    };
+  }
+  if (query.q) {
+    where.OR = [
+      { company: { contains: query.q, mode: 'insensitive' } },
+      { position: { contains: query.q, mode: 'insensitive' } },
+      { notes: { contains: query.q, mode: 'insensitive' } },
+    ];
+  }
+  return where;
+}
+
+export function buildApplicationsOrderBy(
+  query: ListApplicationsQueryDto,
+): Prisma.ApplicationOrderByWithRelationInput {
+  return {
+    [query.sortBy ?? ApplicationSortBy.APPLIED_AT]:
+      query.sortOrder ?? SortOrder.DESC,
+  };
+}
+
 const NEXT_STATUSES: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   APPLIED: [
     ApplicationStatus.SCREENING,
@@ -81,29 +115,8 @@ export class ApplicationsService {
       throw new BadRequestException('appliedFrom must be before appliedTo');
     }
 
-    const where: Prisma.ApplicationWhereInput = { userId };
-    if (query.status) where.status = query.status;
-    if (query.company) {
-      where.company = { contains: query.company, mode: 'insensitive' };
-    }
-    if (query.appliedFrom || query.appliedTo) {
-      where.appliedAt = {
-        ...(query.appliedFrom ? { gte: new Date(query.appliedFrom) } : {}),
-        ...(query.appliedTo ? { lte: new Date(query.appliedTo) } : {}),
-      };
-    }
-    if (query.q) {
-      where.OR = [
-        { company: { contains: query.q, mode: 'insensitive' } },
-        { position: { contains: query.q, mode: 'insensitive' } },
-        { notes: { contains: query.q, mode: 'insensitive' } },
-      ];
-    }
-
-    const orderBy: Prisma.ApplicationOrderByWithRelationInput = {
-      [query.sortBy ?? ApplicationSortBy.APPLIED_AT]:
-        query.sortOrder ?? SortOrder.DESC,
-    };
+    const where = buildApplicationsWhere(userId, query);
+    const orderBy = buildApplicationsOrderBy(query);
     const skip = (query.page - 1) * query.pageSize;
     const [data, total] = await Promise.all([
       this.prisma.application.findMany({

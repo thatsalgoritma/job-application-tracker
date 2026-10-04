@@ -139,8 +139,42 @@ Swagger UI: [`/api`](http://localhost:3000/api) when running locally. Resource e
 | `GET`, `PATCH`, `DELETE` | `/applications/:id/interviews/:interviewId` | Read, update, or delete an interview                                                                                   |
 | `GET`                    | `/health`                                   | Check that the API process is responding                                                                               |
 | `POST`                   | `/digests/trigger`                          | Send the authenticated user's digest for testing (JWT required; still respects opt-in and weekly duplicate protection) |
+| `GET`                    | `/applications/export?format=csv`           | Stream a filtered CSV export for the authenticated user                                                                |
+| `GET`                    | `/applications/export?format=json`          | Export filtered applications, including their interviews                                                               |
+| `POST`                   | `/applications/import`                      | Import a CSV or JSON file; add `?dryRun=true` to preview                                                               |
 
 Application statuses are `APPLIED`, `SCREENING`, `INTERVIEW`, `OFFER`, `REJECTED`, and `WITHDRAWN`. Filtering supports status, company, applied date range, and text search; list responses include pagination metadata. The response-rate denominator excludes withdrawn applications; rejected applications count as responses.
+
+## Application export and import
+
+Both export formats reuse the list filters (`status`, `company`, `q`, `appliedFrom`, and `appliedTo`) and always scope data to the authenticated user. CSV is streamed with a UTF-8 BOM for Excel and quotes every field; values beginning with `=`, `+`, `-`, or `@` are prefixed with an apostrophe to reduce spreadsheet formula injection risk. JSON contains applications with nested interviews.
+
+Example CSV (`applications.csv`):
+
+```csv
+Company,Position,Job URL,Location,Source,Status,Applied At,Notes
+Acme Corp,Backend Engineer,https://jobs.example.com/1,"Istanbul, Türkiye",Referral,APPLIED,2026-10-01T09:00:00.000Z,"Follow up next week"
+Globex,Software Engineer,,,Careers page,SCREENING,2026-10-02T10:00:00.000Z,
+```
+
+Example JSON (`applications.json`):
+
+```json
+[
+  {
+    "company": "Acme Corp",
+    "position": "Backend Engineer",
+    "jobUrl": "https://jobs.example.com/1",
+    "status": "APPLIED",
+    "appliedAt": "2026-10-01T09:00:00.000Z",
+    "interviews": []
+  }
+]
+```
+
+Use Swagger at `/api` with a bearer token: download from `GET /applications/export?format=csv` (or `format=json`), then upload with `POST /applications/import` as multipart form field `file`. To inspect a file without writing to the database, use `POST /applications/import?dryRun=true`; its `created` count means rows that would be inserted. CSV headers are case-insensitive and accept common variants such as `Company`/`company`, `Job Title`/`position`, and `Applied Date`/`appliedAt`. CSV row numbers refer to physical file lines (the header is line 1); JSON row numbers are 1-based array positions. Import accepts `text/csv`, `application/csv`, and `application/json`; files are limited to 2 MB and 500 application rows. Each invalid status or DTO field appears as a row-level failure. Existing records and duplicates within the file are skipped when company, position, and applied timestamp match (company and position comparisons ignore case).
+
+Real imports use a serializable database transaction. If any row is invalid, no otherwise-valid row is written; the report marks those rows skipped because the batch was rolled back and lists each invalid row under failed. Duplicate rows remain skipped. This all-or-nothing policy avoids silently importing a partial backup and lets the user correct and retry the same file. It can make a large import fail because of one bad row, so the dry-run report is the intended first step. JSON export includes interviews for a complete record; this import endpoint creates applications only and does not recreate nested interview records.
 
 ## Weekly email digest
 

@@ -21,10 +21,15 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();
+    const uploadError = getMulterError(exception);
     const statusCode =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : uploadError?.code === 'LIMIT_FILE_SIZE'
+          ? HttpStatus.PAYLOAD_TOO_LARGE
+          : uploadError
+            ? HttpStatus.BAD_REQUEST
+            : HttpStatus.INTERNAL_SERVER_ERROR;
     const exceptionBody =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const body =
@@ -34,6 +39,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     const message =
       (typeof exceptionBody === 'string' && exceptionBody) ||
+      uploadError?.message ||
       (typeof body?.message === 'string' || Array.isArray(body?.message)
         ? (body.message as string | string[])
         : 'Internal server error');
@@ -52,4 +58,25 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     response.status(statusCode).json(errorBody);
   }
+}
+
+function getMulterError(
+  exception: unknown,
+): { code: string; message: string } | undefined {
+  if (
+    typeof exception !== 'object' ||
+    exception === null ||
+    !('name' in exception) ||
+    exception.name !== 'MulterError' ||
+    !('code' in exception)
+  ) {
+    return undefined;
+  }
+  return {
+    code: String(exception.code),
+    message:
+      exception.code === 'LIMIT_FILE_SIZE'
+        ? 'Import file must be 2 MB or smaller'
+        : 'Uploaded file could not be processed',
+  };
 }

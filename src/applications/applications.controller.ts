@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  BadRequestException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -12,7 +13,11 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  StreamableFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
@@ -21,6 +26,9 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiConsumes,
+  ApiBody,
+  ApiProduces,
   ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -41,6 +49,16 @@ import {
   SortOrder,
 } from './dto/list-applications-query.dto';
 import { UpdateApplicationDto } from './dto/update-application.dto';
+import {
+  ApplicationExportFormat,
+  ExportApplicationsQueryDto,
+} from './dto/export-applications-query.dto';
+import {
+  ApplicationTransferService,
+  ApplicationImportFile,
+  ImportReport,
+  MAX_IMPORT_FILE_BYTES,
+} from './application-transfer.service';
 
 @ApiTags('applications')
 @ApiBearerAuth()
@@ -48,7 +66,89 @@ import { UpdateApplicationDto } from './dto/update-application.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('applications')
 export class ApplicationsController {
-  constructor(private readonly applicationsService: ApplicationsService) {}
+  constructor(
+    private readonly applicationsService: ApplicationsService,
+    private readonly transferService: ApplicationTransferService,
+  ) {}
+
+  @Get('export')
+  @ApiOperation({ summary: 'Export the current user’s filtered applications' })
+  @ApiProduces('text/csv', 'application/json')
+  @ApiQuery({ name: 'format', enum: ApplicationExportFormat, required: false })
+  @ApiQuery({ name: 'status', enum: ApplicationStatus, required: false })
+  @ApiQuery({ name: 'company', required: false, type: String })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'appliedFrom', required: false, type: String })
+  @ApiQuery({ name: 'appliedTo', required: false, type: String })
+  async export(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: ExportApplicationsQueryDto,
+  ): Promise<StreamableFile> {
+    const result = this.transferService.export(request.user.sub, query);
+    return new StreamableFile(result.stream, {
+      type: result.contentType,
+      disposition: `attachment; filename="${result.filename}"`,
+    });
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_IMPORT_FILE_BYTES },
+      fileFilter: (_request, file, callback) => {
+        const allowedTypes = [
+          'text/csv',
+          'application/csv',
+          'application/json',
+        ];
+        if (!allowedTypes.includes(file.mimetype.toLowerCase())) {
+          callback(
+            new BadRequestException(
+              'Only CSV and JSON files with an expected content type are accepted',
+            ),
+            false,
+          );
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  @ApiOperation({ summary: 'Import applications from a CSV or JSON file' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @ApiQuery({
+    name: 'dryRun',
+    required: false,
+    type: Boolean,
+    description: 'Preview the import without writing to the database',
+  })
+  @ApiOkResponse({
+    description: 'Per-row import result and created/skipped/failed counts',
+  })
+  @ApiBadRequestResponse({ description: 'Invalid file, row, or query value' })
+  async import(
+    @Req() request: AuthenticatedRequest,
+    @UploadedFile() file: ApplicationImportFile | undefined,
+    @Query('dryRun') dryRunQuery?: string,
+  ): Promise<ImportReport> {
+    if (dryRunQuery !== undefined && !['true', 'false'].includes(dryRunQuery)) {
+      throw new BadRequestException('dryRun must be true or false');
+    }
+    return this.transferService.import(
+      request.user.sub,
+      file,
+      file?.mimetype,
+      dryRunQuery === 'true',
+    );
+  }
 
   @Post()
   @ApiOperation({ summary: 'Create an application for the current user' })
